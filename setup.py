@@ -1,0 +1,25 @@
+from setuptools import setup
+
+
+setup(
+    name='clapp',
+    version='0.1',
+    author='Pavel Brodsky',
+    author_email='mcouthon@gmail.com',
+    packages=[
+        'clap',
+    ],
+    description='Cloudify dev/test environment assistant',
+    license='Apache License, Version 2.0',
+    install_requires=[
+        'argh>=0.26.2',
+        'sh>=1.12.14',
+        'colorama>=0.3.9'
+    ],
+    include_package_data=True,
+    entry_points={
+        'console_scripts': [
+            'clap = clap.clap:command'
+        ]
+    },
+)
