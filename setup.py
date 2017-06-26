@@ -2,12 +2,12 @@ from setuptools import setup
 
 
 setup(
-    name='clapp',
-    version='0.1',
+    name='clad',
+    version='0.2',
     author='Pavel Brodsky',
     author_email='mcouthon@gmail.com',
     packages=[
-        'clap',
+        'clad',
     ],
     description='Cloudify dev/test environment assistant',
     license='Apache License, Version 2.0',
@@ -19,7 +19,7 @@ setup(
     include_package_data=True,
     entry_points={
         'console_scripts': [
-            'clap = clap.clap:command'
+            'clad = clad.clad:command'
         ]
     },
 )

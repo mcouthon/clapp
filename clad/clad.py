@@ -30,22 +30,66 @@ DEV_REPOS = [
 ]
 REPOS = CORE_REPOS + DEV_REPOS
 
-REPO_BASE = os.environ.get('CLAP_REPO_BASE',
+REPO_BASE = os.environ.get('CLAD_REPO_BASE',
                            os.path.expanduser('~/dev/repos/'))
 BASE_GITHUB_URL = 'git@github.com:cloudify-cosmo/{0}.git'
 
 # The actual map of repos to clone/checkout/pull/install, as calculated
-# from the REPOS list along with any requirements file passed to clap
+# from the REPOS list along with any requirements file passed to clad
 actual_repos = OrderedDict()
 
 command = argh.EntryPoint(
-    'clap',
+    'clad',
     dict(description='Custom commands that run on several cloudify repos')
 )
 
 
-def _git(repo):
-    repo_path = os.path.join(REPO_BASE, repo)
+def _get_error(msg):
+    return Fore.RED + msg + Fore.RESET
+
+
+def _print_error(msg, should_exit=True):
+    print _get_error(msg)
+    if should_exit:
+        exit(1)
+
+
+def _repo_path(repo):
+    return os.path.join(REPO_BASE, repo)
+
+
+def _validate_git():
+    try:
+        sh.git
+    except sh.CommandNotFound:
+        _print_error('git is not installed on the computer')
+
+
+def _validate_repo(repo, git):
+    repo_path = _repo_path(repo)
+    msg = None
+    if not os.path.exists(repo_path):
+        msg = 'Folder `{0}` does not exist'.format(repo_path)
+        return _get_error(msg)
+
+    try:
+        git.status()
+    except sh.ErrorReturnCode, e:
+        if 'Not a git repository' in str(e):
+            msg = '`{0}` is not a git repository'.format(repo_path)
+        else:
+            msg = str(e)
+        return _get_error(msg)
+
+    return None
+
+
+def _git(repo=None):
+    _validate_git()
+    if not repo:
+        return sh.git.bake()
+
+    repo_path = _repo_path(repo)
     return sh.git.bake(
         '--no-pager',
         '--git-dir', os.path.join(repo_path, '.git'),
@@ -62,15 +106,23 @@ def _print_header(header):
     print '{s:{c}^{n}}'.format(s=header, n=40, c='-')
 
 
-def _get_current_branch_or_tag(git):
+def _get_current_branch_or_tag(git, hide_tags=False):
     """
     Get the value of HEAD, if it's not detached, or emit the tag name, if it's
     an exact match. Throw an error otherwise
     """
-    try:
-        return git('symbolic-ref', '-q', '--short', 'HEAD').strip()
-    except sh.ErrorReturnCode:
-        return git('describe', '--tags', '--exact-match').strip()
+    branch = git('rev-parse', '--abbrev-ref', 'HEAD').strip()
+    if hide_tags:
+        return branch
+
+    tags = git('tag', '--points-at', 'HEAD').split()
+    result = branch if branch != 'HEAD' else ''
+
+    if tags:
+        tags = ', '.join(tags)
+        tags = Fore.YELLOW + '[{0}]'.format(tags) + Fore.RESET
+        result = '{0} {1}'.format(result, tags).strip()
+    return result
 
 
 def _parse_and_print_output(repo, output):
@@ -140,13 +192,13 @@ def _git_clone(git, repo, branch, shallow):
     args = [full_url, repo_path, '--branch', branch]
     if shallow:
         args += ['--depth', 1]
-    return git.clone(*args)
+    git.clone(*args)
 
 
 def _clone_repo(git, repo, repo_branch, shallow):
     _parse_and_print_output(repo, 'Cloning `{0}`'.format(repo))
-    output = _git_clone(git, repo, repo_branch, shallow)
-    return output or 'Successfully cloned `{0}`'.format(repo)
+    _git_clone(git, repo, repo_branch, shallow)
+    return Fore.GREEN + 'Successfully cloned `{0}`'.format(repo) + Fore.RESET
 
 
 def _create_repo_base():
@@ -180,12 +232,16 @@ def _print_install_line(line, name, verbose):
 
 
 @command
-def status():
+def status(hide_tags=False):
     _print_header('Status')
     for repo, _ in _get_repos():
         git = _git(repo)
+        output = _validate_repo(repo, git)
+        if output:
+            _print(repo, output)
+            continue
 
-        branch = _get_current_branch_or_tag(git)
+        branch = _get_current_branch_or_tag(git, hide_tags=hide_tags)
         _print(repo, branch)
 
         status_out = git('status', '-s').strip()
@@ -225,32 +281,38 @@ def install(verbose=False):
 
 
 @command
-def checkout(branch):
+def checkout(branch, hide_tags=False):
     _print_header('Checkout')
     for repo, repo_branch in _get_repos(branch):
         git = _git(repo)
         try:
-            output = git.checkout(repo_branch)
+            git.checkout(repo_branch)
+            branch = _get_current_branch_or_tag(git, hide_tags=hide_tags)
+            _print(repo, branch)
         except sh.ErrorReturnCode:
             output = 'Could not checkout branch `{0}`'.format(repo_branch)
-
-        _parse_and_print_output(repo, output)
+            _parse_and_print_output(repo, output)
 
 
 @command
 def clone(shallow=False, dev=True):
     _print_header('Clone')
-    git = sh.git.bake()
+    git = _git()
     _create_repo_base()
 
     for repo, repo_branch in _get_repos(dev=dev):
         try:
             output = _clone_repo(git, repo, repo_branch, shallow)
         except sh.ErrorReturnCode, e:
-            output = 'Could not clone repo `{0}`: {1}'.format(repo, e)
+            error = str(e)
 
-        if 'fatal: destination path' in output:
-            output = 'Repo is already cloned (the folder exists)'
+            if 'fatal: destination path' in error:
+                error = 'Repo is probably already cloned (the folder exists)'
+            if 'fatal: Could not read from remote repository' in error:
+                error = 'Make sure you have your GitHub SSH key set up'
+
+            output = 'Could not clone repo `{0}`: {1}'.format(repo, error)
+            output = _get_error(output)
 
         _parse_and_print_output(repo, output)
 
