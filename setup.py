@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='clad',
-    version='0.2',
+    version='0.3',
     author='Pavel Brodsky',
     author_email='mcouthon@gmail.com',
     packages=[
